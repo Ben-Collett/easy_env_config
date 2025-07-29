@@ -1,172 +1,509 @@
 #!/bin/python
 import sys
-import json as json_parser
-import argparse
 import unittest
-from argparse import Namespace, ArgumentParser
+import shutil
+import os
+from argparse import Namespace, ArgumentParser, FileType
+"""config:documentation
 
-# I can't lru cache because of seen
-rec(current,seen):
-  if(current in seen):
-    exception('collision')
-  total = 0
-  for var in get_vars(current):
-    total = max(total,1+rec(var,seen.append(seen))
-  return total
+./easyenv -p to print instead of write changes, print target path followed by content
 
-sort vars by rec(var,{})
 
+auto_set_targets #invoked by default
+default_write_paths#invoked by default
+local_targets#writes the changes to the local program directory instead of the path
+
+set_shells(bash, fish, nu)
+alias(a,what ever)
+abbr(b,again)
+set_env(d,frog)
+set_shells(bash, fish)
+add_path(path)
+
+
+compile_target(shells, path)
+
+
+
+
+"""
+# sort vars by rec(var, {})
 # TODO: it might be a good idea when parsing a json string to ignore white space that occurs in the json to avoid needing to wrap in quotes
+
+
 def parse_args(args) -> Namespace:
     parser = ArgumentParser(
         prog='easy-env-config',
-        description='this is a simple program for setting up enviorment varaibles and alises/abbrevations for users who frequently swtich shells or are trying out a new shell')
+        description='this is a simple program for setting up environment variables and alises/abbrevations for users who frequently switch shells or are trying out a new shell')
 
-    parser.add_argument('-v', '--version', action='store_true', help='prints the current version to the screen')
-    parser.add_argument('-t', '--run_test', action='store_true', help="runs programs tests")
-    parser.add_argument('-j', '--raw_json', action='store_true',
-                        help='makes easy-env-config take raw json text instead of a file')
-    parser.add_argument('json', nargs='?',
-                        help='if the -j flag is set then a raw json string is expected otherwise a path to a json file is expected')
+    parser.add_argument('-v', '--version', action='store_true',
+                        help='prints the current version to the screen')
+    parser.add_argument('-t', '--run_test',
+                        action='store_true', help="runs programs tests")
+    parser.add_argument('-p', '--print',
+                        action='store_true', help="prints the resulting config on a per shell bases without writing to disk")
+    parser.add_argument('file', nargs='?', type=FileType('r'),
+                        help='config file')
     return parser.parse_args(args)
 
 
 def read_file(path) -> str:
-    with open('path', 'r') as file:
-        return file.read()
-
-
-def _get_json_string(args: Namespace):
-    if args.raw_json:
-        json_string = args.json
-    else:
-        json_string = read_file(args.json)
-    return json_string
-
-
-def get_json(args: Namespace):
-    # TODO: strip any comments from the string to support json comments
-    return json_parser.loads(_get_json_string(args))
-
-
-class SortingGraphNode:
-    def __init__(self, key: str, vals=None):
-        if vals is None:
-            vals = []
-        self.vals = vals
-        self.key = key
-
-
-class SortingGraph:
-    def __init__(self):
-        self.keys = {}
-        self.vals = {}
-
-    def add_entry(self, key, val):
-        pass
-
-
-def sort_aliases(aliases_map):
-    pass
-
-
-def sort_enviorment_variables(var_map):
-    pass
+    with open(path, 'r') as file:
+        lines = file.readlines()
+    return lines
 
 
 # TODO: figure out how to break apart sub commands in alieses or don't support until v2 things that could spearete a command, | & > ; ' ' or always wrap in quotes, this needs to be done for handling aliases that depend on each other
 
+def empty(collection):
+    return len(collection) == 0
+
+
 class Shell:
+
     def __init__(self):
         self.env_variables = {}
+        self.config_path = "~/.easy_env_bash"
         self.path = None
         self.aliases = {}
+        self.abbrs = dict()
+        self.paths_to_add = []
+
+    @property
+    def shell_name(self):
+        return "bash"
+
+    @property
+    def updated(self) -> bool:
+
+        fields_to_check = [self.aliases, self.abbrs,
+                           self.env_variables, self.paths_to_add]
+
+        return any(not empty(attr) for attr in fields_to_check)
 
     def add_abbr(self, key, val):
         self.add_alias(key, val)
 
+    def add_path(self, path: str):
+        self.paths_to_add.append(path)
+
     def add_alias(self, key, val):
         self.aliases[key] = val
 
+    def supports_abbreviations(self):
+        return False
+
+    def set_environment_variable(self, key, val):
+        self.env_variables[key] = val
+
     def aliases_string(self) -> str:
-        pass
+        out = ""
+        for key, val in self.aliases.items():
+            out += f'{self.alias_to_string(key, val)}\n'
+        return out.removesuffix('\n')
+
+    def alias_to_string(self, key, value):
+        if self.alias_needs_quotes(value):
+            value = f'"{value}"'
+        return f'alias {key}={value}'
+
+    def alias_needs_quotes(self, val: str):
+        has_problematic_char = any(c in val for c in ['|', '>', '&', '-'])
+        return has_problematic_char and "'" not in val
+
+    def add_paths_string(self):
+        out = ""
+        for path in self.paths_to_add:
+            out += f'{self.add_paths_to_string(path)}\n'
+        return out.removesuffix("\n")
+
+    def add_paths_to_string(self, path):
+        return f'export PATH="$PATH:{path}"'
+
+    def abbrs_string(self) -> str:
+        out = ''
+        for key, val in self.abbrs.items():
+
+            if self.alias_needs_quotes(key):
+                key = f"'{key}'"
+
+            if self.alias_needs_quotes(val):
+                val = f"'{val}'"
+
+            out += f"abbr {key} {val}\n"
+
+        out = out.removesuffix('\n')
+        return out
+
+    def env_variable_string(self):
+        out = ""
+        for key, val in self.env_variables.items():
+            if len(val.split(' ')) > 1:
+                val = f'"{val}"'
+            out += f'export {key}={val}\n'
+
+        return out.removesuffix('\n')
+
+    def comment_string(self, input):
+        return f'#{input}'
 
     def __str__(self):
-        pass
-
-
-class Nu(Shell):
-    pass
-
-
-# TODO for fish writing a alais i can use an equals sign or not but either way if the values have more then one string then I need to use an quotes
-class Fish(Shell):
-    def __init__(self):
-        self.abbrs = {}
-        super().__init__()
-
-    def add_abbr(self, key, val):
-        self.abbrs[key.trim()] = val.trim()
-
-    def abbr_string(self) -> str:
-        out = ''
-        for key, val in self.abbrs:
-            out += f"abbr {key} '{val}'\n"
+        out = ""
+        if len(self.env_variables) > 0:
+            out += self.comment_string("environment variables\n")
+            out += self.env_variable_string()
+            out += '\n\n'
+        if len(self.aliases) > 0:
+            out += self.comment_string("aliases\n")
+            out += self.aliases_string()
+            out += '\n\n'
+        if len(self.abbrs) > 0:
+            out += self.comment_string("abbrs\n")
+            out += self.abbrs_string()
         return out
 
 
-SHELLS = {'nu': Nu(), 'fish': Fish(), 'bash': Shell(), 'zsh': Shell()}
+class Zsh(Shell):
+    def __init__(self):
+        super().__init__()
+        self.config_path = "~/.easy_env_zsh"
+
+    @property
+    def shell_name(self):
+        return "zsh"
+
+    def add_paths_to_string(self, path):
+        if ' ' in path:
+            path = f'"{path}"'
+        return f'path+={path}'
 
 
-def add_path(self, path):  # TODO iterate current_shells, add to path, verify path exists first
-    for _, val in self.current_shells:
-        val.paths.add(val)
+class Nu(Shell):
+
+    def __init__(self):
+        super().__init__()
+        self.config_path = "~/.config/nu/easy_env.nu"
+
+    @property
+    def shell_name(self):
+        return "nu"
+
+    def env_variable_string(self):
+        out = ""
+        for key, val in self.env_variables.items():
+            out += f'$env.{key} = "{val}"\n'
+        return out.removesuffix('\n')
+
+    def add_paths_to_string(self, path):
+        return ""
 
 
-def process_multi_shell(json):
-    shells: [Shell] = [SHELLS[shell] for shell in json['shells']]
-    for key, val in json['aliases']:
-        for shell in shells:
-            shell.add_alias(key, val)
+# TODO for fish writing a alias i can use an equals sign or not but either way if the values have more then one string then I need to use an quotes
+class Fish(Shell):
+    def __init__(self):
+        super().__init__()
+        self.config_path = "~/.config/fish/easy_env.fish"
+
+    @property
+    def shell_name(self):
+        return "fish"
+
+    def add_abbr(self, key, val):
+        self.abbrs[key.strip()] = val.strip()
+
+    def add_paths_to_string(self, path):
+        if ' ' in path:
+            path = f'"{path}"'
+        return f'fish_add_path {path}'
+
+    def supports_abbreviations(self):
+        return True
+
+    def alias_to_string(self, key, val):
+        if self.alias_needs_quotes(val):
+            val = f'"{val}"'
+        return f'alias {key} {val}'
+
+    def env_variable_string(self):
+        out = ""
+        for key, val in self.env_variables.items():
+            out += f'set -gx {key} {val}\n'
+        return out.removesuffix('\n')
 
 
-def process_shell(json):
-    pass
+class ShellSet:
+    def __init__(self, current_shells={"nu", "bash", "fish", "zsh"}):
+        self.all_shells = {"nu": Nu(), "fish": Fish(),
+                           "bash": Shell(), "zsh": Zsh(), }
+        self.current_shells = self._get_shells(current_shells)
+        self.set_targets(current_shells)
+
+    def __iter__(self):
+        return (val for val in self.all_shells.values() if val.updated)
+
+    def add_alias(self, key, value):
+        for shell in self.current_shells:
+            shell.add_alias(key, value)
+
+    def add_abbr(self, key, value):
+        for shell in self.current_shells:
+            shell.add_abbr(key, value)
+
+    def set_env_variable(self, key, value):
+        for shell in self.current_shells:
+            shell.set_environment_variable(key, value)
+
+    def add_path(self, path):
+        for shell in self.current_shells:
+            shell.add_path(path)
+
+    def set_targets(self, shells):
+        self.current_shells = self._get_shells(shells)
+
+    def _get_shells(self, shells_as_strings):
+        out: set = set()
+        for shell in shells_as_strings:
+            out.add(self.all_shells[shell])
+        return out
 
 
-def process_json(json):
-    if 'multi_shells' in json_map:
-        multi_shells = json_map['multi_shells']
-        for multi_shell in multi_shells:
-            process_multi_shell(multi_shell)
-    for key, val in SHELLS:
-        if key in json_map:
-            process_shell(val)
+def _get_params(command: str) -> tuple:
+    start = command.find('(')
+    end = command.rfind(')')
+
+    # Ensure both parentheses are found and properly ordered
+    if start == -1 or end == -1 or start > end:
+        return tuple()
+
+    # Get the substring inside the parentheses
+    params_str = command[start + 1:end].strip()
+
+    # Return tuple of parameters, empty string check avoids ['']
+    if not params_str:
+        return tuple()
+
+    # Split by commas and strip whitespace
+    params = tuple(param.strip() for param in params_str.split(','))
+    return params
+
+
+def _execute(command: str, shell_set: ShellSet):
+    if command.startswith("alias"):
+        params = _get_params(command)
+        shell_set.add_alias(*params)
+    elif command.startswith("abbr"):
+        params = _get_params(command)
+        shell_set.add_abbr(*params)
+    elif command.startswith("set_env"):
+        params = _get_params(command)
+        shell_set.set_env_variable(*params)
+    elif command.startswith("add_path"):
+        path = _get_params(command)
+        shell_set.add_path(*path)
+    elif command.startswith("set_shells"):
+        params = _get_params(command)
+        shell_set.set_targets([*params])
+
+
+shell_to_command = {
+    "bash": "bash",
+    "zsh": "zsh",
+    "fish": "fish",
+    "nu": "nu",
+    # "cmd": "cmd.exe",
+    # "powershell": "powershell.exe",
+    # "pwsh": "pwsh",
+}
+
+
+def auto_detect_shells():
+    out = []
+    for name, command in shell_to_command.items():
+        if shutil.which(command):
+            out.append(name)
+    return out
+
+
+def process_config(lines, shell_set):
+    for line in lines:
+        _execute(line, shell_set)
+
+
+def print_shell_set(shell_set: ShellSet):
+    toPrint = ""
+    for shell in shell_set:
+        toPrint += f'{shell.shell_name}:{shell.config_path}\n'
+        toPrint += f'{shell}\n\n'
+    print(toPrint.rstrip())
+
+
+def write_shell_set(shell_set: ShellSet):
+    for shell in shell_set:
+        config_path = os.path.expanduser(shell.config_path)
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        with open(config_path, 'w') as file:
+            file.write(str(shell))
+
+
+def filter_lines(lines):
+    out = []
+    for line in lines:
+        line = line.strip()
+        if line != '':
+            out.append(line)
+    return out
 
 
 class TestRunner(unittest.TestCase):
-    def test_read_json1(self):
-        test_args = parse_args(['-j', '{}'])
-        json = get_json(test_args)
-        self.assertEqual(json, {})
+    def test_add_abbr_fish1(self):
+        shell = Fish()
+        shell.add_abbr("ls", "eza")
+        self.assertEqual(shell.abbrs_string(), "abbr ls eza")
 
-    def test_read_json2(self):
-        test_args = parse_args(['-j', '{"Hello":"there","json":"is scary","Especially":"when","writing":"test"}'])
-        json = get_json(test_args)
-        self.assertEqual(json, {"Hello": "there", "json": "is scary", "Especially": "when", "writing": "test"})
+    def test_add_abbr_fish2(self):
+        shell = Fish()
+        shell.add_abbr("ls", "eza")
+        shell.add_abbr("sl", "eza")
+        shell.add_abbr("sh0", "shutdown now")
+        shell.add_abbr("lg", "eza|rg")
+        expected = "abbr ls eza\nabbr sl eza\nabbr sh0 shutdown now\nabbr lg 'eza|rg'"
+        self.assertEqual(shell.abbrs_string(), expected)
+
+    def test_set_env_fish(self):
+        shell = Fish()
+        shell.set_environment_variable("dog", "cat")
+        shell.set_environment_variable("pig", "cow thing")
+        expected = "set -gx dog cat\nset -gx pig cow thing"
+        self.assertEqual(shell.env_variable_string(), expected)
+
+    def test_set_env_nu(self):
+        shell = Nu()
+        shell.set_environment_variable("dog", "cat")
+        shell.set_environment_variable("pig", "cow thing")
+        expected = '$env.dog = "cat"\n$env.pig = "cow thing"'
+        self.assertEqual(shell.env_variable_string(), expected)
+
+    def test_set_env_bash(self):
+        # TODO: duplicate code
+        shell = Shell()
+        shell.set_environment_variable("dog", "cat")
+        shell.set_environment_variable("pig", "cow thing")
+        expected = 'export dog=cat\nexport pig="cow thing"'
+        self.assertEqual(shell.env_variable_string(), expected)
+
+    def test_bash_alias(self):
+        shell = Shell()
+        shell.add_alias("l", "ls")
+        shell.add_alias("la", "ls -a")
+        expected = 'alias l=ls\nalias la="ls -a"'
+        self.assertEqual(shell.aliases_string(), expected)
+
+    def test_fish_alias(self):
+        shell = Fish()
+        shell.add_alias("l", "ls")
+        shell.add_alias("la", "ls -a")
+        expected = 'alias l ls\nalias la "ls -a"'
+        self.assertEqual(shell.aliases_string(), expected)
+
+    def test_fish_add_path(self):
+        shell = Fish()
+        shell.add_path("~/.cargo/bin")
+        shell.add_path("~/.nix-profile/bin")
+        expected = "fish_add_path ~/.cargo/bin\nfish_add_path ~/.nix-profile/bin"
+        self.assertEqual(shell.add_paths_string(), expected)
+
+    def test_zsh_add_path(self):
+        shell = Zsh()
+        shell.add_path("~/.cargo/bin")
+        shell.add_path("~/.nix-profile/bin")
+        expected = "path+=~/.cargo/bin\npath+=~/.nix-profile/bin"
+        self.assertEqual(shell.add_paths_string(), expected)
+
+    def test_bash_add_path(self):
+        shell = Shell()
+        p1 = "~/.cargo/bin"
+        p2 = "~/.nix-profile/bin"
+        shell.add_path(p1)
+        shell.add_path(p2)
+        expected = f'export PATH="$PATH:{p1}"\nexport PATH="$PATH:{p2}"'
+        self.assertEqual(shell.add_paths_string(), expected)
+
+    def test_execute_add_alias(self):
+        shells = {'nu', 'fish', 'bash'}
+        shell_set = ShellSet(current_shells=shells)
+        command = "alias(la,ls -a)"
+        _execute(command, shell_set)
+        self.assertEqual(len(shell_set.current_shells), 3)
+        for shell in shell_set.current_shells:
+            self.assertEqual(shell.aliases['la'], 'ls -a')
+
+    def test_execute_add_abbr(self):
+        shells = {'nu', 'fish', 'bash'}
+        shell_set = ShellSet(current_shells=shells)
+        command = "abbr(la,ls -a)"
+        _execute(command, shell_set)
+        self.assertEqual(len(shell_set.current_shells), 3)
+        for shell in shell_set.current_shells:
+            if isinstance(shell, Fish):
+                self.assertEqual(shell.abbrs['la'], 'ls -a')
+            else:
+                self.assertEqual(shell.aliases['la'], 'ls -a')
+
+    def test_execute_add_path(self):
+        shells = {'nu', 'fish', 'bash'}
+        shell_set = ShellSet(current_shells=shells)
+        c1 = "add_path(~/.cargo/bin)"
+        c2 = "add_path(~/.nix-profile/bin)"
+        _execute(c1, shell_set)
+        _execute(c2, shell_set)
+        self.assertEqual(len(shell_set.current_shells), 3)
+        for shell in shell_set.current_shells:
+            self.assertEqual(shell.paths_to_add, [
+                             "~/.cargo/bin", "~/.nix-profile/bin"])
+
+    def test_execute_set_shells(self):
+        shells = {'fish', 'zsh'}
+        shell_set = ShellSet(shells)
+
+        def has_shell_type(type):
+            current_shells = shell_set.current_shells
+            return any(isinstance(shell, type) for shell in current_shells)
+        assert has_shell_type(Fish)
+        assert has_shell_type(Zsh)
+        self.assertEqual(len(shell_set.current_shells), 2)
+
+        command = "set_shells(nu, bash)"
+        _execute(command, shell_set)
+        assert has_shell_type(Nu)
+        self.assertEqual(len(shell_set.current_shells), 2)
 
 
 if __name__ == '__main__':
-    args = parse_args(sys.argv[1:])  # argv[0] is the program itself, even if run directly as an executable
+    # argv[0] is the program itself, even if run directly as an executable
+    args = parse_args(sys.argv[1:])
     display_version = args.version
     run_test = args.run_test
     if display_version:
         print('v0.0')
         exit(0)
-    if run_test:
+    elif run_test:
         base_name = sys.argv[0]
         unittest.main(argv=[
-            base_name])  # needs basename, but if I don't explictly pass argv it will try to parse all args passed to program
-        # runnig the test automatically exits the program
-    json_map = get_json(args)
-    process_json(json_map)
+            base_name])  # needs basename, but if I don't explicitly pass argv it will try to parse all args passed to program
+        # running the test automatically exits the program
+    else:
+        shells = auto_detect_shells()
+        shell_set = ShellSet(shells)
+        default_config_path = os.path.expanduser(
+            "~/.config/easy_env/easy.conf")
+        if args.file is None:
+            unfiltered_lines = read_file(default_config_path)
+        else:
+            unfiltered_lines = args.file.readlines()
+
+        lines = filter_lines(unfiltered_lines)
+        process_config(lines, shell_set)
+        if args.print:
+            print_shell_set(shell_set)
+        else:
+            write_shell_set(shell_set)

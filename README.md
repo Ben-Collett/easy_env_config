@@ -16,9 +16,8 @@ Easy Env Config is a Python-based tool designed to simplify the management of en
 
     NuShell
 
-    PowerShell
 
-The project is written entirely in a single Python file, which includes both the core functionality and unit tests. Keeping all the code in one file is intended as a challenge for the developer and it is highly advised to never do anything like this.
+The project is written entirely in a single Python file(plus a readme and a sample configuration), which includes both the core functionality and unit tests. Keeping all the code in one file is intended as a challenge for the developer and it is highly advised to never do anything like this.
 
 on the plus side it means that running the program is just running one script.
 use easy_env_config.py -h to see all the avaliable flags 
