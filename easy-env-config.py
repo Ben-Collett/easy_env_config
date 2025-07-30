@@ -20,12 +20,7 @@ set_env(d,frog)
 set_shells(bash, fish)
 add_path(path)
 
-
-compile_target(shells, path)
-
-
-
-
+compile_path(shell, path)
 """
 # sort vars by rec(var, {})
 # TODO: it might be a good idea when parsing a json string to ignore white space that occurs in the json to avoid needing to wrap in quotes
@@ -60,11 +55,9 @@ def empty(collection):
 
 
 class Shell:
-
     def __init__(self):
         self.env_variables = {}
         self.config_path = "~/.easy_env_bash"
-        self.path = None
         self.aliases = {}
         self.abbrs = dict()
         self.paths_to_add = []
@@ -108,7 +101,7 @@ class Shell:
         return f'alias {key}={value}'
 
     def alias_needs_quotes(self, val: str):
-        has_problematic_char = any(c in val for c in ['|', '>', '&', '-'])
+        has_problematic_char = any(c in val for c in ['|', '>', '&'])
         return has_problematic_char and "'" not in val
 
     def add_paths_string(self):
@@ -260,6 +253,9 @@ class ShellSet:
     def set_targets(self, shells):
         self.current_shells = self._get_shells(shells)
 
+    def set_compile_path(self, shell, path):
+        self.all_shells[shell].config_path = path
+
     def _get_shells(self, shells_as_strings):
         out: set = set()
         for shell in shells_as_strings:
@@ -303,6 +299,9 @@ def _execute(command: str, shell_set: ShellSet):
     elif command.startswith("set_shells"):
         params = _get_params(command)
         shell_set.set_targets([*params])
+    elif command.startswith("compile_path"):
+        params = _get_params(command)
+        shell_set.set_compile_path(*params)
 
 
 shell_to_command = {
@@ -341,6 +340,9 @@ def write_shell_set(shell_set: ShellSet):
     for shell in shell_set:
         config_path = os.path.expanduser(shell.config_path)
         os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        if os.path.exists(config_path) and os.path.isdir(config_path):
+            print(f'cannot overrde directory{config_path}')
+            exit(1)
         with open(config_path, 'w') as file:
             file.write(str(shell))
 
@@ -394,15 +396,15 @@ class TestRunner(unittest.TestCase):
     def test_bash_alias(self):
         shell = Shell()
         shell.add_alias("l", "ls")
-        shell.add_alias("la", "ls -a")
-        expected = 'alias l=ls\nalias la="ls -a"'
+        shell.add_alias("la", "ls -a | echo")
+        expected = 'alias l=ls\nalias la="ls -a | echo"'
         self.assertEqual(shell.aliases_string(), expected)
 
     def test_fish_alias(self):
         shell = Fish()
         shell.add_alias("l", "ls")
-        shell.add_alias("la", "ls -a")
-        expected = 'alias l ls\nalias la "ls -a"'
+        shell.add_alias("la", "ls -a | echo")
+        expected = 'alias l ls\nalias la "ls -a | echo"'
         self.assertEqual(shell.aliases_string(), expected)
 
     def test_fish_add_path(self):
@@ -476,6 +478,16 @@ class TestRunner(unittest.TestCase):
         _execute(command, shell_set)
         assert has_shell_type(Nu)
         self.assertEqual(len(shell_set.current_shells), 2)
+
+    def test_set_shell_config_path(self):
+        shells = {"fish", "nu"}
+        shell_set = ShellSet(shells)
+        fish_path = "/cool/path/fish.fish"
+        nu_path = "~/hi.nu"
+        shell_set.set_compile_path("fish", fish_path)
+        shell_set.set_compile_path("nu", nu_path)
+        self.assertEqual(shell_set.all_shells["fish"].config_path, fish_path)
+        self.assertEqual(shell_set.all_shells["nu"].config_path, nu_path)
 
 
 if __name__ == '__main__':
