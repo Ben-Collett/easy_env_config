@@ -8,22 +8,18 @@ from argparse import Namespace, ArgumentParser, FileType
 
 ./easyenv -p to print instead of write changes, print target path followed by content
 
-
-auto_set_targets #invoked by default
-default_write_paths#invoked by default
-local_targets#writes the changes to the local program directory instead of the path
-
 set_shells(bash, fish, nu)
-alias(a,what ever)
-abbr(b,again)
-set_env(d,frog)
-set_shells(bash, fish)
+alias(la,ls -a)
+abbr(la,ls -a) creates an abbreviation and falls back to aliases if abbreviations don't exist
+set_env(d,frog) sets environment variable
 add_path(path)
 
 compile_path(shell, path)
 """
 # sort vars by rec(var, {})
 # TODO: it might be a good idea when parsing a json string to ignore white space that occurs in the json to avoid needing to wrap in quotes
+
+CURRENT_VERSION = 'v1.0'
 
 
 def parse_args(args) -> Namespace:
@@ -146,12 +142,17 @@ class Shell:
             out += self.comment_string("environment variables\n")
             out += self.env_variable_string()
             out += '\n\n'
+        if len(self.paths_to_add) > 0:
+            out += self.comment_string("update path\n")
+            out += self.add_paths_string()
+            out += '\n\n'
+
         if len(self.aliases) > 0:
             out += self.comment_string("aliases\n")
             out += self.aliases_string()
             out += '\n\n'
         if len(self.abbrs) > 0:
-            out += self.comment_string("abbrs\n")
+            out += self.comment_string("abbreviations\n")
             out += self.abbrs_string()
         return out
 
@@ -284,24 +285,25 @@ def _get_params(command: str) -> tuple:
 
 
 def _execute(command: str, shell_set: ShellSet):
-    if command.startswith("alias"):
-        params = _get_params(command)
-        shell_set.add_alias(*params)
-    elif command.startswith("abbr"):
-        params = _get_params(command)
-        shell_set.add_abbr(*params)
-    elif command.startswith("set_env"):
-        params = _get_params(command)
-        shell_set.set_env_variable(*params)
-    elif command.startswith("add_path"):
-        path = _get_params(command)
-        shell_set.add_path(*path)
-    elif command.startswith("set_shells"):
-        params = _get_params(command)
-        shell_set.set_targets([*params])
-    elif command.startswith("compile_path"):
-        params = _get_params(command)
-        shell_set.set_compile_path(*params)
+    params = _get_params(command)
+    try:
+        if command.startswith("alias"):
+            shell_set.add_alias(*params)
+        elif command.startswith("abbr"):
+            shell_set.add_abbr(*params)
+        elif command.startswith("set_env"):
+            shell_set.set_env_variable(*params)
+        elif command.startswith("add_path"):
+            shell_set.add_path(*params)
+        elif command.startswith("set_shells"):
+            shell_set.set_targets([*params])
+        elif command.startswith("compile_path"):
+            shell_set.set_compile_path(*params)
+        else:
+            print(f'unknown command: {command}')
+            exit(1)
+    except Exception:
+        print(f"command:{command}, invalid parameters: {params}")
 
 
 shell_to_command = {
@@ -496,7 +498,7 @@ if __name__ == '__main__':
     display_version = args.version
     run_test = args.run_test
     if display_version:
-        print('v0.0')
+        print(CURRENT_VERSION)
         exit(0)
     elif run_test:
         base_name = sys.argv[0]
