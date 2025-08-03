@@ -20,14 +20,16 @@ Use easy_env_config.py -h to see all the available flags
 
 You will need to source the generated files from your config files for your shell.
 
-#config:documentation
 
-./easyenv -p to print instead of write changes, print target path followed by content
+#config:documentation
+you can pass a path to a config file using ./easy-env-config.py <filePath>
+if it is not specified then easy-env will look at this default config path  "~/.config/easy_env/easy.conf"
+./easy-env-config.py -p to print instead of write changes, print target path followed by content
 
 set_shells(bash, fish, nu) → sets the shells to change, every shell on your device should be autodetected beforehand
 alias(la,ls -a) → defines an alias
 abbr(la,ls -a) creates an abbreviation and falls back to aliases if abbreviations don't exist
 set_env(d,frog) -> sets environment variable
 add_path(path) -> add a path to the PATH environment variable
-
+set_motion_mode(vi) parameter can be vi, emacs or normal, not supported by nushell
 compile_path(shell, path)# config syntax

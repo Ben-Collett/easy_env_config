@@ -3,6 +3,7 @@ import sys
 import unittest
 import shutil
 import os
+from enum import Enum
 from argparse import Namespace, ArgumentParser, FileType
 """config:documentation
 
@@ -12,14 +13,13 @@ set_shells(bash, fish, nu)
 alias(la,ls -a)
 abbr(la,ls -a) creates an abbreviation and falls back to aliases if abbreviations don't exist
 set_env(d,frog) sets environment variable
+set_motion_mode(vi) parameter can be vi, emacs or normal, not supported by nushell
 add_path(path)
 
 compile_path(shell, path)
 """
-# sort vars by rec(var, {})
-# TODO: it might be a good idea when parsing a json string to ignore white space that occurs in the json to avoid needing to wrap in quotes
 
-CURRENT_VERSION = 'v1.0'
+CURRENT_VERSION = 'v1.1'
 
 
 def parse_args(args) -> Namespace:
@@ -44,10 +44,14 @@ def read_file(path) -> str:
     return lines
 
 
-# TODO: figure out how to break apart sub commands in alieses or don't support until v2 things that could spearete a command, | & > ; ' ' or always wrap in quotes, this needs to be done for handling aliases that depend on each other
-
 def empty(collection):
     return len(collection) == 0
+
+
+class MotionMode(Enum):
+    VI = "vi"
+    EMACS = "emacs"
+    NORMAL = "normal"
 
 
 class Shell:
@@ -56,6 +60,7 @@ class Shell:
         self.config_path = "~/.easy_env_bash"
         self.aliases = {}
         self.abbrs = dict()
+        self.motion_mode = MotionMode.NORMAL
         self.paths_to_add = []
 
     @property
@@ -78,6 +83,23 @@ class Shell:
 
     def add_alias(self, key, val):
         self.aliases[key] = val
+
+    @property
+    def emacs_motion_str(self):
+        return "set -o emacs"
+
+    @property
+    def vi_motion_str(self):
+        return "set -o vi"
+
+    @property
+    def motion_mode_str(self):
+        if self.motion_mode == MotionMode.VI:
+            return self.vi_motion_str
+        elif self.motion_mode == MotionMode.EMACS:
+            return self.emacs_motion_str
+        else:
+            return ""
 
     def supports_abbreviations(self):
         return False
@@ -138,6 +160,10 @@ class Shell:
 
     def __str__(self):
         out = ""
+        motion_mode = self.motion_mode_str
+        if len(motion_mode) > 0:
+            out += motion_mode
+            out += '\n\n'
         if len(self.env_variables) > 0:
             out += self.comment_string("environment variables\n")
             out += self.env_variable_string()
@@ -146,7 +172,6 @@ class Shell:
             out += self.comment_string("update path\n")
             out += self.add_paths_string()
             out += '\n\n'
-
         if len(self.aliases) > 0:
             out += self.comment_string("aliases\n")
             out += self.aliases_string()
@@ -163,6 +188,14 @@ class Zsh(Shell):
         self.config_path = "~/.easy_env_zsh"
 
     @property
+    def emacs_motion_str(self):
+        return "bindkey -e"
+
+    @property
+    def vi_motion_str(self):
+        return "bindkey -v"
+
+    @property
     def shell_name(self):
         return "zsh"
 
@@ -174,9 +207,19 @@ class Zsh(Shell):
 
 class Nu(Shell):
 
+    def alias_to_string(self, key, value):
+        if self.alias_needs_quotes(value):
+            value = f'"{value}"'
+        return f'alias {key} = {value}'
+
+    @property
+    def motion_mode_str(self):
+        print("setting motion mode is not supported in nushell do to how it handles global configuration")
+        return ""
+
     def __init__(self):
         super().__init__()
-        self.config_path = "~/.config/nu/easy_env.nu"
+        self.config_path = "~/.config/nushell/easy_env.nu"
 
     @property
     def shell_name(self):
@@ -189,7 +232,7 @@ class Nu(Shell):
         return out.removesuffix('\n')
 
     def add_paths_to_string(self, path):
-        return ""
+        return f'$env.path ++= [{path}]'
 
 
 # TODO for fish writing a alias i can use an equals sign or not but either way if the values have more then one string then I need to use an quotes
@@ -201,6 +244,14 @@ class Fish(Shell):
     @property
     def shell_name(self):
         return "fish"
+
+    @property
+    def emacs_motion_str(self):
+        return "fish_default_key_bindings"
+
+    @property
+    def vi_motion_str(self):
+        return "fish_vi_key_bindings"
 
     def add_abbr(self, key, val):
         self.abbrs[key.strip()] = val.strip()
@@ -257,6 +308,10 @@ class ShellSet:
     def set_compile_path(self, shell, path):
         self.all_shells[shell].config_path = path
 
+    def set_motion_mode(self, mode):
+        for shell in self.current_shells:
+            shell.motion_mode = MotionMode(mode)
+
     def _get_shells(self, shells_as_strings):
         out: set = set()
         for shell in shells_as_strings:
@@ -299,6 +354,8 @@ def _execute(command: str, shell_set: ShellSet):
             shell_set.set_targets([*params])
         elif command.startswith("compile_path"):
             shell_set.set_compile_path(*params)
+        elif command.startswith("set_motion_mode"):
+            shell_set.set_motion_mode(*params)
         else:
             print(f'unknown command: {command}')
             exit(1)
