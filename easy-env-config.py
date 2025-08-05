@@ -3,6 +3,7 @@ import sys
 import unittest
 import shutil
 import os
+import re
 from enum import Enum
 from argparse import Namespace, ArgumentParser, FileType
 """config:documentation
@@ -406,9 +407,18 @@ def write_shell_set(shell_set: ShellSet):
             file.write(str(shell))
 
 
+def remove_comments(s):
+    match = re.search(r'(?<!\\)#', s)
+    if match:
+        return s[:match.start()]
+    else:
+        return s
+
+
 def filter_lines(lines):
     out = []
     for line in lines:
+        line = remove_comments(line)
         line = line.strip()
         if line != '':
             out.append(line)
@@ -547,6 +557,12 @@ class TestRunner(unittest.TestCase):
         shell_set.set_compile_path("nu", nu_path)
         self.assertEqual(shell_set.all_shells["fish"].config_path, fish_path)
         self.assertEqual(shell_set.all_shells["nu"].config_path, nu_path)
+
+    def test_filter_lines(self):
+        original = ["hello()", "bye", "# byte", "h#llo", "c\\#llo", ]
+        expected = ["hello()", "bye", "h", "c\\#llo"]
+
+        self.assertEqual(filter_lines(original), expected)
 
 
 if __name__ == '__main__':
