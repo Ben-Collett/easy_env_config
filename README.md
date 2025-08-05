@@ -26,6 +26,7 @@ you can pass a path to a config file using ./easy-env-config.py <filePath>
 if it is not specified then easy-env will look at this default config path  "~/.config/easy_env/easy.conf"
 ./easy-env-config.py -p to print instead of write changes, print target path followed by content
 
+# is syntax for a comment and \# is how you type a literal pound
 set_shells(bash, fish, nu) → sets the shells to change, every shell on your device should be autodetected beforehand
 alias(la,ls -a) → defines an alias
 abbr(la,ls -a) creates an abbreviation and falls back to aliases if abbreviations don't exist

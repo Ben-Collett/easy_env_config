@@ -9,7 +9,8 @@ from argparse import Namespace, ArgumentParser, FileType
 """config:documentation
 
 ./easyenv -p to print instead of write changes, print target path followed by content
-
+# is for a comment
+you can use a backslacsh to escape the pound 
 set_shells(bash, fish, nu)
 alias(la,ls -a)
 abbr(la,ls -a) creates an abbreviation and falls back to aliases if abbreviations don't exist
@@ -340,6 +341,20 @@ def _get_params(command: str) -> tuple:
     return params
 
 
+def source(paths, parent_dir=".."):
+    to_add = []
+    for path in paths:
+        expanded_path = os.path.expanduser(path)
+        if os.path.isabs(expanded_path):
+            abs_path = expanded_path
+        else:
+            abs_path = os.path.join(parent_dir, path)
+        new_lines = read_file(abs_path)
+        new_lines = filter_lines_and_handle_sourcing(new_lines, parent_dir)
+        to_add.extend(new_lines)
+    return to_add
+
+
 def _execute(command: str, shell_set: ShellSet):
     params = _get_params(command)
     try:
@@ -357,6 +372,8 @@ def _execute(command: str, shell_set: ShellSet):
             shell_set.set_compile_path(*params)
         elif command.startswith("set_motion_mode"):
             shell_set.set_motion_mode(*params)
+        elif command.startswith("source"):
+            shell_set.source([*params])
         else:
             print(f'unknown command: {command}')
             exit(1)
@@ -415,12 +432,16 @@ def remove_comments(s):
         return s
 
 
-def filter_lines(lines):
+def filter_lines_and_handle_sourcing(lines, parent_dir=".."):
     out = []
     for line in lines:
         line = remove_comments(line)
         line = line.strip()
-        if line != '':
+        line = re.sub(r'\\#', '#', line)
+        if line.startswith("source"):
+            params = _get_params(line)
+            out.extend(source([*params], parent_dir))
+        elif line != '':
             out.append(line)
     return out
 
@@ -560,9 +581,9 @@ class TestRunner(unittest.TestCase):
 
     def test_filter_lines(self):
         original = ["hello()", "bye", "# byte", "h#llo", "c\\#llo", ]
-        expected = ["hello()", "bye", "h", "c\\#llo"]
+        expected = ["hello()", "bye", "h", "c#llo"]
 
-        self.assertEqual(filter_lines(original), expected)
+        self.assertEqual(filter_lines_and_handle_sourcing(original), expected)
 
 
 if __name__ == '__main__':
@@ -583,12 +604,15 @@ if __name__ == '__main__':
         shell_set = ShellSet(shells)
         default_config_path = os.path.expanduser(
             "~/.config/easy_env/easy.conf")
+
         if args.file is None:
+            path = default_config_path
             unfiltered_lines = read_file(default_config_path)
         else:
+            path = os.path.abspath(args.file.name)
             unfiltered_lines = args.file.readlines()
-
-        lines = filter_lines(unfiltered_lines)
+        parent_dir = os.path.dirname(path)
+        lines = filter_lines_and_handle_sourcing(unfiltered_lines, parent_dir)
         process_config(lines, shell_set)
         if args.print:
             print_shell_set(shell_set)
