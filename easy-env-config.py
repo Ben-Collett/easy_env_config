@@ -6,17 +6,21 @@ import os
 import re
 from enum import Enum
 from argparse import Namespace, ArgumentParser, FileType
-"""config:documentation
+# TODO: i need to change how the escaping works for comments and {}
+# as it doesnt allow you to type a { after a \
+r"""config:documentation
 
 ./easyenv -p to print instead of write changes, print target path followed by content
 # is for a comment
-you can use a backslacsh to escape the pound 
+you can use a backslacsh to escape the pound \#
 set_shells(bash, fish, nu)
 alias(la,ls -a)
 abbr(la,ls -a) creates an abbreviation and falls back to aliases if abbreviations don't exist
 set_env(d,frog) sets environment variable
 set_motion_mode(vi) parameter can be vi, emacs or normal, not supported by nushell
 add_path(path)
+
+to reference env variable in an expression use {VAR_NAME} escape \{ \} if you want to use them
 
 compile_path(shell, path)
 """
@@ -77,13 +81,32 @@ class Shell:
 
         return any(not empty(attr) for attr in fields_to_check)
 
+    def reformat_env_variables(self, line: str):
+        pattern = r'(?<!\\){([^}]*)}'
+
+        # Use re.sub with a function to substitute the matched content
+        result = re.sub(
+            pattern, lambda match: self._env_variable_format(match), line)
+
+        # replace escaped curlies
+        result = result.replace(r'\{', '{').replace(r'\}', '}')
+        return result
+
+    def _env_variable_format(self, match):
+        return self.env_variable_format(match.group(1))
+
+    def env_variable_format(self, variable):
+        return f'${variable}'
+
     def add_abbr(self, key, val):
         self.add_alias(key, val)
 
     def add_path(self, path: str):
+        path = self.reformat_env_variables(path)
         self.paths_to_add.append(path)
 
     def add_alias(self, key, val):
+        val = self.reformat_env_variables(val)
         self.aliases[key] = val
 
     @property
@@ -107,6 +130,7 @@ class Shell:
         return False
 
     def set_environment_variable(self, key, val):
+        val = self.reformat_env_variables(val)
         self.env_variables[key] = val
 
     def aliases_string(self) -> str:
@@ -219,6 +243,9 @@ class Nu(Shell):
         print("setting motion mode is not supported in nushell do to how it handles global configuration")
         return ""
 
+    def env_variable_format(self, variable):
+        return f'$env.{variable}'
+
     def __init__(self):
         super().__init__()
         self.config_path = "~/.config/nushell/easy_env.nu"
@@ -256,6 +283,7 @@ class Fish(Shell):
         return "fish_vi_key_bindings"
 
     def add_abbr(self, key, val):
+        val = self.reformat_env_variables(val)
         self.abbrs[key.strip()] = val.strip()
 
     def add_paths_to_string(self, path):
@@ -267,6 +295,7 @@ class Fish(Shell):
         return True
 
     def alias_to_string(self, key, val):
+        val = self.reformat_env_variables(val)
         if self.alias_needs_quotes(val):
             val = f'"{val}"'
         return f'alias {key} {val}'
