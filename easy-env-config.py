@@ -234,8 +234,15 @@ class Zsh(Shell):
 class Nu(Shell):
 
     def alias_to_string(self, key, value):
-        if self.alias_needs_quotes(value):
-            value = f'"{value}"'
+        problematic_chars = ['|', "&", '>', '<']
+
+        for problem_char in problematic_chars:
+            if problem_char in value:
+                out = f'def {key} [...args] '
+                out += '{'
+                out += value
+                out += ' ...$args}'
+                return out
         return f'alias {key} = {value}'
 
     @property
@@ -257,7 +264,13 @@ class Nu(Shell):
     def env_variable_string(self):
         out = ""
         for key, val in self.env_variables.items():
-            out += f'$env.{key} = "{val}"\n'
+            line = f'$env.{key} = '
+            if not val.startswith('"') and not val.startswith("'"):
+                line += '"'
+            line += val
+            if not val.endswith('"') and not val.endswith("'"):
+                line += '"'
+            out += f'{line}\n'
         return out.removesuffix('\n')
 
     def add_paths_to_string(self, path):
