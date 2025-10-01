@@ -246,9 +246,12 @@ class Nu(Shell):
         return f'alias {key} = {value}'
 
     @property
-    def motion_mode_str(self):
-        print("setting motion mode is not supported in nushell do to how it handles global configuration")
-        return ""
+    def emacs_motion_str(self):
+        return '$env.config.edit_mode = "emacs"'
+
+    @property
+    def vi_motion_str(self):
+        return '$env.config.edit_mode = "vi"'
 
     def env_variable_format(self, variable):
         return f'$env.{variable}'
