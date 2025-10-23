@@ -5,6 +5,7 @@ import shutil
 import os
 import re
 from enum import Enum
+from itertools import permutations
 from argparse import Namespace, ArgumentParser, FileType
 # TODO: i need to change how the escaping works for comments and {}
 # as it doesnt allow you to type a { after a \
@@ -16,13 +17,24 @@ you can use a backslacsh to escape the pound \#
 set_shells(bash, fish, nu)
 alias(la,ls -a)
 abbr(la,ls -a) creates an abbreviation and falls back to aliases if abbreviations don't exist
+abbr(sh0, shutdown now) -> permutate key
 set_env(d,frog) sets environment variable
 set_motion_mode(vi) parameter can be vi, emacs or normal, not supported by nushell
 add_path(path)
 
-to reference env variable in an expression use {VAR_NAME} escape \{ \} if you want to use them
-
 compile_path(shell, path)
+
+to reference env variable in an expression use {VAR_NAME} escape \{ \} if you want to use them
+-> is called a directive and goes after a command to change it's writing behaviour in preprocessing
+-> permutate key is the only currently supported directive and it will permutate a key so
+abbr(sh0, shutdown now) -> permutate key, generates:
+abbr(sh0,shutdown now)
+abbr(s0h,shutdown now)
+abbr(hs0,shutdown now)
+abbr(h0s,shutdown now)
+abbr(0sh,shutdown now)
+abbr(0hs,shutdown now)
+
 """
 
 CURRENT_VERSION = 'v1.1'
@@ -323,10 +335,63 @@ class Fish(Shell):
         return out.removesuffix('\n')
 
 
+class Murex(Shell):
+
+    def alias_to_string(self, key, value):
+        problematic_chars = ['|', "&", '>', '<']
+
+        for problem_char in problematic_chars:
+            if problem_char in value:
+                out = f'function {key} ()'
+                out += '{\n'
+                out += value
+                out += ' $ARGS\n}'
+                return out
+        return f'alias {key} = {value}'
+
+    def __init__(self):
+        super().__init__()
+        self.config_path = "~/.config/murex/murex_easy_env"
+
+    @property
+    def shell_name(self):
+        return "murex"
+
+    def add_paths_to_string(self, path):
+        return f'$PATH -> append {path} -> export PATH'
+
+
+class Xonsh(Shell):
+
+    def alias_to_string(self, key, value):
+        problematic_chars = ['|', "&", '>', '<']
+
+        for problem_char in problematic_chars:
+            if problem_char in value:
+                out = f'def {key} ()'
+                out += '{\n'
+                out += value
+                out += ' $ARGS\n}'
+                return out
+        return f'alias {key} = {value}'
+
+    def __init__(self):
+        super().__init__()
+        self.config_path = "~/.config/xonsh/easy_env.xsh"
+
+    @property
+    def shell_name(self):
+        return "murex"
+
+    def add_paths_to_string(self, path):
+        return f'$PATH -> append {path} -> export PATH'
+
+
 class ShellSet:
-    def __init__(self, current_shells={"nu", "bash", "fish", "zsh"}):
+    def __init__(self, current_shells={"nu", "bash", "fish", "zsh", "murex", "xonsh"}):
         self.all_shells = {"nu": Nu(), "fish": Fish(),
-                           "bash": Shell(), "zsh": Zsh(), }
+                           "bash": Shell(), "zsh": Zsh(),
+                           "murex": Murex(), "xonsh": Xonsh()}
         self.current_shells = self._get_shells(current_shells)
         self.set_targets(current_shells)
 
@@ -384,6 +449,10 @@ def _get_params(command: str) -> tuple:
     # Split by commas and strip whitespace
     params = tuple(param.strip() for param in params_str.split(','))
     return params
+
+
+def _get_command(command: str):
+    return command[0:command.index('(')]
 
 
 def source(paths, parent_dir=".."):
@@ -483,10 +552,33 @@ def filter_lines_and_handle_sourcing(lines, parent_dir=".."):
         line = remove_comments(line)
         line = line.strip()
         line = re.sub(r'\\#', '#', line)
+
+        last_paran = line.rfind(')')
+        arrow = line.rfind('->')
+        directives = []
+        if arrow > last_paran:
+            directives = line[arrow + 2:].strip().split(',')
+            line = line[0: last_paran+1]
+
+        should_add: bool = True
+
+        if 'permutate key' in directives:
+            key, value = _get_params(line)
+            command = _get_command(line)
+
+            keys = {''.join(p) for p in permutations(key)}
+
+            for permutation in keys:
+                out.append(f'{command}({permutation}, {value})')
+
+            should_add = False
+
         if line.startswith("source"):
             params = _get_params(line)
             out.extend(source([*params], parent_dir))
-        elif line != '':
+            should_add = False
+
+        if should_add and line != '':
             out.append(line)
     return out
 

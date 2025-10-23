@@ -34,3 +34,15 @@ set_env(d,frog) -> sets environment variable
 add_path(path) -> add a path to the PATH environment variable
 set_motion_mode(vi) parameter can be vi, emacs or normal, not supported by nushell
 compile_path(shell, path)# config syntax
+
+-> is called a directive and goes after a command to change it's writing behaviour in preprocessing
+-> permutate key is the only currently supported directive and it will permutate a key so
+abbr(sh0, shutdown now) -> permutate key
+
+generates:
+abbr(sh0,shutdown now)
+abbr(s0h,shutdown now)
+abbr(hs0,shutdown now)
+abbr(h0s,shutdown now)
+abbr(0sh,shutdown now)
+abbr(0hs,shutdown now)
