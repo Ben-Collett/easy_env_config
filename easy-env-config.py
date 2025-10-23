@@ -25,15 +25,29 @@ add_path(path)
 compile_path(shell, path)
 
 to reference env variable in an expression use {VAR_NAME} escape \{ \} if you want to use them
+
 -> is called a directive and goes after a command to change it's writing behaviour in preprocessing
--> permutate key is the only currently supported directive and it will permutate a key so
-abbr(sh0, shutdown now) -> permutate key, generates:
+-> permutate key is will permutate a key so
+abbr(sh0, shutdown now) -> permutate key
+generates:
 abbr(sh0,shutdown now)
 abbr(s0h,shutdown now)
 abbr(hs0,shutdown now)
 abbr(h0s,shutdown now)
 abbr(0sh,shutdown now)
 abbr(0hs,shutdown now)
+-> other key permutations does the same things as permutate key but excludes the original permutation
+   can be used for example to make git work if you type gti or tig by saying abbr(git,git) -> other key permutaitons
+
+abbr(git, git) -> other key permutations 
+generates:
+abbr(gti, git)
+abbr(igt, git)
+abbr(itg, git)
+abbr(tgi, git)
+abbr(tig, git)
+
+both of these directives only work with commands with two parameters a key value pair if you will.
 
 """
 
@@ -570,6 +584,18 @@ def filter_lines_and_handle_sourcing(lines, parent_dir=".."):
 
             for permutation in keys:
                 out.append(f'{command}({permutation}, {value})')
+
+            should_add = False
+
+        if 'other key permutations' in directives:
+            key, value = _get_params(line)
+            command = _get_command(line)
+
+            keys = {''.join(p) for p in permutations(key)}
+
+            for permutation in keys:
+                if permutation != key:
+                    out.append(f'{command}({permutation}, {value})')
 
             should_add = False
 

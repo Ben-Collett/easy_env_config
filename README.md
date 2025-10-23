@@ -36,9 +36,8 @@ set_motion_mode(vi) parameter can be vi, emacs or normal, not supported by nushe
 compile_path(shell, path)# config syntax
 
 -> is called a directive and goes after a command to change it's writing behaviour in preprocessing
--> permutate key is the only currently supported directive and it will permutate a key so
+-> permutate key is will permutate a key so
 abbr(sh0, shutdown now) -> permutate key
-
 generates:
 abbr(sh0,shutdown now)
 abbr(s0h,shutdown now)
@@ -46,3 +45,16 @@ abbr(hs0,shutdown now)
 abbr(h0s,shutdown now)
 abbr(0sh,shutdown now)
 abbr(0hs,shutdown now)
+-> other key permutations does the same things as permutate key but excludes the original permutation
+   can be used for example to make git work if you type gti or tig by saying abbr(git,git) -> other key permutaitons
+
+abbr(git, git) -> other key permutations 
+generates:
+abbr(gti, git)
+abbr(igt, git)
+abbr(itg, git)
+abbr(tgi, git)
+abbr(tig, git)
+
+both of these directives only work with commands with two parameters a key value pair if you will.
+
